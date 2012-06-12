@@ -1,0 +1,314 @@
+diff --git a/thrust-base.js b/thrust-base.js
+index 7c802d6..f4a65e0 100644
+--- a/thrust-base.js
++++ b/thrust-base.js
+@@ -194,6 +194,29 @@ init:
+         
+         this.gravs = [];
+    },
++checkNextLevel:
++    function()
++    {
++       if (this.scoreObjsCount == 0)
++       {
++           jQuery.cookies.set("thrust2010_data", "{ \"score\": " + this.score + ",\"lives\": " + this.lives+ "}");
++           
++           // borrow life until reset in new level
++           if (!this.borrowed)
++           {
++               ++this.lives;
++               this.borrowed = true;
++           }
++           ++this.level;
++           var max = Thrust.levels.length - 1;
++           if (this.level >= max)
++           {
++               this.level = max;
++           }
++           
++           document.location.href = "index.html?level=" + this.level + ":" + chksum(Thrust.levels[this.level]);
++       }
++    },
+ insertLineBox: 
+     function(pt0, pt1)
+     {
+@@ -400,7 +423,7 @@ createSubPaths:
+ width: 1000,
+ height: 1000,
+ score: 0,
+-lives: 4,
++lives: 5,
+ borrowed: false,
+ ox:0,oy:0,
+ 
+@@ -729,22 +752,35 @@ init: function(world,initX,initY)
+ reset:
+     function()
+     {
+-        if (this.world.lives >= 0)
++        this.world.checkNextLevel();
++        
++        if (--this.world.lives >= 0)
+         {
+-            this.pos = new Vector2D( this.initX, this.initY);
+-            
+-            this.dx = 0;
+-            this.dy = 0;
+-            this.dead = false;
+-            this.radius = 15;
+-            this.thrustPower = 92000;
+-            
+-            if (this.connected)
+-            {
+-                this.connected.connected = false;
+-                this.connected = null;
+-            }
+-            this.thrustPoint = null;
++        //var paper = this.world.paper;
++        //this.canvasObjs[0] = paper.circle(0, 0, 10);
++        
++        this.pos.x = this.initX;
++        this.pos.y = this.initY;
++        
++        this.dx = 0;
++        this.dy = 0;
++        this.dead = false;
++        this.radius = 15;
++        this.thrustPower = 92000;
++        
++//        this.canvasObjs[0].attr({
++//            "fill": "#00f", 
++//            "stroke": "#88f", 
++//            "r" : this.radius, 
++//            "cx" : this.pos.x , 
++//            "cy" : this.pos.y});
++        
++        if (this.connected)
++        {
++            this.connected.connected = false;
++            this.connected = null;
++        }
++        this.thrustPoint = null;
+         }
+     },
+ explode: 
+@@ -753,20 +789,8 @@ explode:
+         if (!this.dead)
+         {
+             this.dead = true;
+-            var that = this;
+-            new Explosion(this.world, pos || this.pos.clone(), 15, 
+-                function() 
+-                { 
+-                    if (that === that.world.player)
+-                    {
+-                        that.world.lives--;
+-                        that.world.player.reset();
+-                    }
+-                    else
+-                    {
+-                        that.world.removeObject(that);
+-                    }
+-                });
++            
++            new Explosion(this.world, pos || this.pos.clone(), 15, this == this.world.player ? this.world.player.reset : function() {}, player);
+         }
+     },
+ draw:
+@@ -925,9 +949,10 @@ move:
+ 
+                     this.translate(align.x * 0.3, align.y * 0.3);
+                 }
+-                else
++
++                if (distToBase < .2)
+                 {
+-                    this.atRest = true;
++                    this.world.checkNextLevel();
+                 }
+             }
+         }
+@@ -1267,11 +1292,7 @@ explode:
+         {
+             this.dead = true;
+             var that = this;
+-            new Explosion(this.world, pos || this.pos.clone(), 15, 
+-                function() 
+-                { 
+-                    that.world.removeObject(that); 
+-                });
++            new Explosion(this.world, pos || this.pos.clone(), 15, function() { that.world.removeObject(that); } );
+         }
+     },
+ move:
+@@ -1310,12 +1331,13 @@ getBBox:
+ 
+ this.Explosion = GameObject.extend({
+ init:
+-    function(world, pos, r, fn)
++    function(world, pos, r, fn, ctx)
+     {
+         this.pos = pos;
+         this._super(world);
+         this.radius = r;
+         this.callback = fn;
++        this.ctx = ctx;
+         this.count = 3;
+         this.zIndex = 2;
+         this.type="explosion";
+@@ -1372,7 +1394,7 @@ move:
+             this.world.removeObject(this);
+             if (this.callback)
+             {
+-                this.callback.call(this);
++                this.callback.call(this.ctx || this);
+             }
+         }
+     },
+@@ -1470,7 +1492,7 @@ move:
+             
+             var ptDock = this.world.base.pos.add(25,-12);
+             var dist = ptDock.substract(this.pos).length();
+-            if (dist < this.radius * 2)
++            if (dist < this.radius * 1.75)
+             {
+                 this.resting = true;
+                 this.connected = false;
+@@ -1505,15 +1527,6 @@ move:
+             }
+             
+         }
+-        
+-        if (this.atBase > 0)
+-        {
+-            if (--this.atBase == 0)
+-            {
+-                this.world.removeObject(this);
+-            }
+-        }
+-        
+     },
+ remove:
+     function()
+@@ -1570,6 +1583,10 @@ draw:
+         if (this.atBase > 0)
+         {
+             ctx.fillStyle = "#0f0";
++            if (--this.atBase == 0)
++            {
++                this.world.removeObject(this);
++            }
+         }
+         ctx.arc(this.pos.x, this.pos.y, this.radius, 0, Math.PI*2, false);       
+         ctx.fill();
+diff --git a/thrust.js b/thrust.js
+index b2ead61..e0f117f 100644
+--- a/thrust.js
++++ b/thrust.js
+@@ -103,16 +103,10 @@ init:
+         
+         if (levelParam)
+         {
+-            var cookie = $.cookies.get("thrust2010_data");
+-            
+-            var data = cookie ? JSON.parse( cookie ) : {"score":0,"lives":4};
++            var data = JSON.parse($.cookies.get("thrust2010_data") || "{\"score\":0,\"lives\":5}");
+             world.score = data.score;
+             world.lives = data.lives;
+         }
+-        else
+-        {
+-            $.cookies.remove("thrust2010_data");
+-        }
+             
+         var delayed = [];
+         
+@@ -121,6 +115,8 @@ init:
+             dataType: "xml", 
+             success:function(data) 
+             { 
++                var playerX = 0, playerY = 0;
++                
+                 //console.debug(data);
+                 
+                 var svgFactories = SvgFactory.prototype.getRegistered();
+@@ -167,7 +163,7 @@ init:
+                 
+                 var playerX = pt.x + 25;
+                 var playerY = pt.y - 25 ;
+-                console.debug("player pt = %d,%d", playerX, playerY);
++                //console.debug("World box: %s", world.box);
+                 
+                 player = new Ship(world, playerX, playerY);
+                 world.player = player;
+@@ -196,55 +192,27 @@ init:
+                     obj.message("prepare");
+                 }
+                 
+-                ;
+-                var lastFrame = animationTime = (new Date()).getTime();
++                animationTime = (new Date()).getTime();
++                var lastFrame = animationTime;
+                 (function mainLoop()
+                 {
+-                    try
+-                    {
+-                        var time = (new Date()).getTime();
+-                        
+-                        while (animationTime < time)
+-                        {                    
+-                            world.step();
+-                            animationTime += STEP_TIME;
+-                        }
++                    var time = (new Date()).getTime();
++                    
++                    while (animationTime < time)
++                    {                    
+                         world.step();
+-                        world.draw();
+-                        
+-                        var wait = (lastFrame + FRAME_TIME) - (new Date()).getTime();
+-                        if (wait < 1)
+-                        {
+-                            wait = 1;
+-                        }
+-                        
+-                        if (world.scoreObjsCount !== 0 || world.player.gravityBound || !world.player.atRest)
+-                        {
+-                            window.setTimeout(mainLoop, wait);
+-                        }
+-                        else
+-                        {
+-                            ++world.level;
+-                            var max = Thrust.levels.length - 1;
+-                            if (world.level >= max)
+-                            {
+-                                world.level = 0;
+-                            }
+-
+-                            jQuery.cookies.set("thrust2010_data", "{ \"score\": " + world.score + ",\"lives\": " + world.lives+ "}");
+-                            
+-                            window.setTimeout(function()
+-                            {
+-                                document.location.href = "index.html?level=" + world.level + ":" + chksum(Thrust.levels[world.level]);
+-                            }, 10);
+-                        }
+-                        
+-                        lastFrame = time;
++                        animationTime += STEP_TIME;
+                     }
+-                    catch(e)
++                    world.step();
++                    world.draw();
++                    
++                    var wait = (lastFrame + FRAME_TIME) - (new Date()).getTime();
++                    if (wait < 1)
+                     {
+-                        console.error("Error in mainLoop", e);
++                        wait = 1;
+                     }
++                    window.setTimeout(mainLoop, wait);
++                    lastFrame = time;
+                 })();                
+             }
+         });
